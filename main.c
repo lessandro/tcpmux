@@ -1,88 +1,53 @@
 #include <signal.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <netinet/in.h>
+#include <string.h>
 #include <ev.h>
-#include "redismq/redismq.h"
+#include "sev/sev.h"
 
-#define ASSERT(cond, name) do { \
-    if (!(cond)) { \
-        perror(name); \
-        exit(-1); \
-    } \
-} while (0);
+#define PORT 5555
 
-static int create_server(int port)
+void open_cb(struct sev_client *client)
 {
-    int sd = socket(PF_INET, SOCK_STREAM, 0);
-    ASSERT(sd != -1, "socket");
-
-    struct sockaddr_in addr = {};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = INADDR_ANY;
-
-    ASSERT(bind(sd, (struct sockaddr*)&addr, sizeof(addr)) != -1, "bind");
-    ASSERT(listen(sd, 2) != -1, "listen");
-
-    return sd;
+    printf("open %s:%d\n", client->ip, client->port);
 }
 
-void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
+void read_cb(struct sev_client *client, const char *data, size_t len)
 {
-    ASSERT((revents & EV_ERROR) == 0, "revents");
+    char buffer[2049];
+    memcpy(buffer, data, len);
 
-    char buffer[1024];
+    buffer[len] = '\0';
+    if (buffer[len-1] == '\n')
+        buffer[len-1] = '\0';
 
-    // Receive message from client socket
-    ssize_t read = recv(watcher->fd, buffer, 1023, 0);
+    printf("read %s: %s\n", client->ip, buffer);
 
-    if (read < 0) {
-        perror("recv");
-        return;
+    sev_send(client, "hello\n", 6);
+
+    if (data[0] == 'q') {
+        sev_close(client);
     }
-
-    if (read == 0) {
-        printf("disconnected\n");
-
-        ev_io_stop(EV_DEFAULT_ watcher);
-        free(watcher);
-        return;
-    }
-
-    buffer[read] = '\0';
-    printf("message: %s\n", buffer);
-
-    send(watcher->fd, buffer, read, 0);
 }
 
-void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents)
+void close_cb(struct sev_client *client)
 {
-    ASSERT((revents & EV_ERROR) == 0, "revents");
-
-    struct sockaddr_in addr;
-    socklen_t addr_len = sizeof(addr);
-
-    int sd = accept(watcher->fd, (struct sockaddr*)&addr, &addr_len);
-    ASSERT(sd != -1, "accept");
-
-    printf("connected\n");
-
-    struct ev_io *w_client = (struct ev_io*)malloc(sizeof(struct ev_io));
-    ev_io_init(w_client, read_cb, sd, EV_READ);
-    ev_io_start(EV_DEFAULT_ w_client);
+    printf("close %s\n", client->ip);
 }
 
 int main(int argc, char *argv[])
 {
     signal(SIGPIPE, SIG_IGN);
 
-    int sd = create_server(5555);
+    struct sev_server server;
 
-    struct ev_io w_accept;
+    if (sev_server_init(&server, PORT)) {
+        perror("sev_server_init");
+        return -1;
+    }
 
-    ev_io_init(&w_accept, accept_cb, sd, EV_READ);
-    ev_io_start(EV_DEFAULT_ &w_accept);
+    server.open_cb = open_cb;
+    server.read_cb = read_cb;
+    server.close_cb = close_cb;
 
     ev_loop(EV_DEFAULT_ 0);
 

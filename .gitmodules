@@ -1,3 +1,6 @@
 [submodule "redismq"]
 	path = redismq
 	url = https://github.com/lessandro/redismq.git
+[submodule "sev"]
+	path = sev
+	url = https://github.com/lessandro/sev.git
