@@ -4,8 +4,11 @@ Goals:
 
 - port ircd.server.tcpserver[0] to C
 - use redismq[1]
+- use sev[2]
 - libev
-- MIT license
+- BSD 2-clause license
+- C98
 
 [0] https://github.com/lessandro/ircd/blob/master/ircd/servers/tcpserver.py
 [1] https://github.com/lessandro/redismq
+[1] https://github.com/lessandro/sev
