@@ -27,45 +27,92 @@
 #include <stdio.h>
 #include <string.h>
 #include <ev.h>
+#include <sys/queue.h>
+#include "redismq/redismq.h"
 #include "sev/sev.h"
 
+#define REDIS_HOST "127.0.0.1"
+#define REDIS_PORT 6379
+#define REDIS_DB 0
+
 #define PORT 5555
+#define NAME "tcpmux"
+#define MQ_OUT "kernel_"
 
-void open_cb(struct sev_client *client)
+struct rmq_context mq_out, mq_in;
+struct sev_server server;
+
+struct tm_client {
+    char *tag;
+    struct sev_stream *stream;
+    struct sev_queue *queue;
+};
+
+struct tm_client *tm_client_new(struct sev_stream *stream)
 {
-    printf("open %s:%d\n", client->ip, client->port);
+    struct tm_client *client = malloc(sizeof(struct tm_client));
+
+    asprintf(&client->tag, "%s:%s-%d", NAME, stream->remote_address,
+        stream->remote_port);
+    client->stream = stream;
+    client->queue = sev_queue_new();
+
+    return client;
 }
 
-void read_cb(struct sev_client *client, const char *data, size_t len)
+void tm_client_free(struct tm_client *client)
 {
-    char buffer[2049];
-    memcpy(buffer, data, len);
-
-    buffer[len] = '\0';
-    if (buffer[len-1] == '\n')
-        buffer[len-1] = '\0';
-
-    printf("read %s: %s\n", client->ip, buffer);
-
-    sev_send(client, "hello\n", 6);
-
-    if (data[0] == 'q') {
-        sev_close(client);
-    }
+    sev_queue_free(client->queue);
+    free(client->tag);
+    free(client);
 }
 
-void close_cb(struct sev_client *client)
+void open_cb(struct sev_stream *stream)
 {
-    printf("close %s\n", client->ip);
+    printf("open %s:%d\n", stream->remote_address, stream->remote_port);
+
+    struct tm_client *client = tm_client_new(stream);
+    stream->data = client;
+
+    rmq_rpushf(&mq_out, "connect %s %s", client->tag, stream->remote_address);
 }
 
-int main(int argc, char *argv[])
+void read_cb(struct sev_stream *stream, const char *data, size_t len)
 {
-    signal(SIGPIPE, SIG_IGN);
+    struct tm_client *client = stream->data;
+    sev_queue_push_back(client->queue, data, len);
 
-    struct sev_server server;
+    printf("todo\n");
 
-    if (sev_server_init(&server, PORT)) {
+    sev_queue_free_head(client->queue);
+}
+
+void close_cb(struct sev_stream *stream)
+{
+    printf("close %s:%d\n", stream->remote_address, stream->remote_port);
+
+    struct tm_client *client = stream->data;
+    rmq_rpushf(&mq_out, "disconnect %s %s", client->tag, "reason");
+    tm_client_free(client);
+}
+
+void blpop_cb(const char *msg)
+{
+    printf("received %s\n", msg);
+}
+
+void mq_init(void)
+{
+    rmq_init(&mq_out, REDIS_HOST, REDIS_PORT, REDIS_DB, "mq:" MQ_OUT);
+    rmq_rpush(&mq_out, "reset " NAME " server restart");
+
+    rmq_init(&mq_in, REDIS_HOST, REDIS_PORT, REDIS_DB, "mq:" NAME);
+    rmq_blpop(&mq_in, blpop_cb);
+}
+
+int sev_init(void)
+{
+    if (sev_listen(&server, PORT)) {
         perror("sev_server_init");
         return -1;
     }
@@ -73,6 +120,17 @@ int main(int argc, char *argv[])
     server.open_cb = open_cb;
     server.read_cb = read_cb;
     server.close_cb = close_cb;
+
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    signal(SIGPIPE, SIG_IGN);
+
+    mq_init();
+    if (sev_init() == -1)
+        return -1;
 
     ev_loop(EV_DEFAULT_ 0);
 

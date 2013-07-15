@@ -1,7 +1,7 @@
 all: tcpmux
 
-tcpmux: redismq/redismq.a sev/sev.a *.c
-	$(CC) -Wall *.c redismq/redismq.a sev/sev.a -lev -lhiredis
+tcpmux: redismq/redismq.a sev/sev.a main.c
+	$(CC) -Wall main.c redismq/redismq.a sev/sev.a -lev -lhiredis
 
 redismq/redismq.a:
 	$(MAKE) -C redismq static-lib
