@@ -33,11 +33,11 @@
 
 #define REDIS_HOST "127.0.0.1"
 #define REDIS_PORT 6379
-#define REDIS_DB 0
+#define REDIS_DB 7
 
 #define PORT 5555
 #define NAME "tcpmux"
-#define MQ_OUT "kernel_"
+#define MQ_OUT "kernel"
 
 struct rmq_context mq_out, mq_in;
 struct sev_server server;
@@ -46,6 +46,7 @@ struct tm_client {
     char *tag;
     struct sev_stream *stream;
     struct sev_queue *queue;
+    size_t queue_len;
 };
 
 struct tm_client *tm_client_new(struct sev_stream *stream)
@@ -56,6 +57,7 @@ struct tm_client *tm_client_new(struct sev_stream *stream)
         stream->remote_port);
     client->stream = stream;
     client->queue = sev_queue_new();
+    client->queue_len = 0;
 
     return client;
 }
@@ -77,14 +79,67 @@ void open_cb(struct sev_stream *stream)
     rmq_rpushf(&mq_out, "connect %s %s", client->tag, stream->remote_address);
 }
 
+int num_delimiters = 3;
+const char delimiters[] = { '\0', '\r', '\n' };
+
+int find_delimiter(const char *data, size_t len)
+{
+    for (int i=0; i<len; i++)
+        for (int j=0; j<num_delimiters; j++)
+            if (data[i] == delimiters[j])
+                return i;
+
+    return -1;
+}
+
 void read_cb(struct sev_stream *stream, const char *data, size_t len)
 {
     struct tm_client *client = stream->data;
-    sev_queue_push_back(client->queue, data, len);
 
-    printf("todo\n");
+    while (len != 0) {
+        int pos = find_delimiter(data, len);
 
-    sev_queue_free_head(client->queue);
+        // no delimiter, save data for later
+        if (pos == -1) {
+            sev_queue_push_back(client->queue, data, len);
+            client->queue_len += len;
+            return;
+        }
+
+        // found a message delimiter
+        // join message parts together
+        size_t total_len = pos + client->queue_len;
+
+        if (total_len > 0) {
+            char *message = malloc(total_len + 1);
+            char *p = message;
+
+            for (;;) {
+                // copy everything in the queue to the buffer
+                struct sev_buffer *buffer = sev_queue_head(stream->queue);
+                if (!buffer)
+                    break;
+
+                memcpy(p, buffer->data, buffer->len);
+                p += buffer->len;
+
+                client->queue_len -= buffer->len;
+                sev_queue_free_head(client->queue);
+            }
+
+            // append the data we just received
+            memcpy(p, data, pos);
+            p += pos;
+            *p = '\0';
+
+            rmq_rpushf(&mq_out, "message %s %s", client->tag, message);
+            free(message);
+        }
+
+        // discard data before the delimiter, and the delimiter
+        data += pos + 1;
+        len -= pos + 1;
+    }
 }
 
 void close_cb(struct sev_stream *stream)
