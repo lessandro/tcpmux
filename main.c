@@ -116,7 +116,7 @@ void read_cb(struct sev_stream *stream, const char *data, size_t len)
 
             for (;;) {
                 // copy everything in the queue to the buffer
-                struct sev_buffer *buffer = sev_queue_head(stream->queue);
+                struct sev_buffer *buffer = sev_queue_head(client->queue);
                 if (!buffer)
                     break;
 
