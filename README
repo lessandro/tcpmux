@@ -7,7 +7,7 @@ Goals:
 - use sev[2]
 - libev
 - BSD 2-clause license
-- C98
+- C99
 
 [0] https://github.com/lessandro/ircd/blob/master/ircd/servers/tcpserver.py
 [1] https://github.com/lessandro/redismq
