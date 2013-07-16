@@ -28,6 +28,7 @@
 #include <string.h>
 #include <ev.h>
 #include <sys/queue.h>
+#include "tree.h"
 #include "redismq/redismq.h"
 #include "sev/sev.h"
 
@@ -47,7 +48,16 @@ struct tm_client {
     struct sev_stream *stream;
     struct sev_queue *queue;
     size_t queue_len;
+    RB_ENTRY(tm_client) entry;
 };
+
+int tm_client_cmp(struct tm_client *e1, struct tm_client *e2)
+{
+    return strcmp(e1->tag, e2->tag);
+}
+
+RB_HEAD(tm_client_tree, tm_client) head = RB_INITIALIZER(&head);
+RB_GENERATE(tm_client_tree, tm_client, entry, tm_client_cmp);
 
 struct tm_client *tm_client_new(struct sev_stream *stream)
 {
@@ -59,11 +69,15 @@ struct tm_client *tm_client_new(struct sev_stream *stream)
     client->queue = sev_queue_new();
     client->queue_len = 0;
 
+    RB_INSERT(tm_client_tree, &head, client);
+
     return client;
 }
 
 void tm_client_free(struct tm_client *client)
 {
+    RB_REMOVE(tm_client_tree, &head, client);
+
     sev_queue_free(client->queue);
     free(client->tag);
     free(client);
@@ -151,9 +165,29 @@ void close_cb(struct sev_stream *stream)
     tm_client_free(client);
 }
 
-void blpop_cb(const char *msg)
+void blpop_cb(const char *reply)
 {
-    printf("received %s\n", msg);
+    char *tags = strdup(reply);
+    char *message = strchr(tags, ' ');
+    *message++ = '\0';
+
+    char *tag = strtok(tags, ",");
+    for (; tag != NULL; tag = strtok(NULL, ",")) {
+        struct tm_client key = { .tag = tag };
+        struct tm_client *client = RB_FIND(tm_client_tree, &head, &key);
+
+        if (client == NULL)
+            continue;
+
+        if (!*message) {
+            sev_close(client->stream);
+            continue;
+        }
+
+        sev_send(client->stream, message, strlen(message));
+    }
+
+    free(tags);
 }
 
 void mq_init(void)
