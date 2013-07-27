@@ -1,5 +1,5 @@
 all:
-	$(MAKE) -C tcpmux
+	$(MAKE) -C src
 
 clean:
-	$(MAKE) -C tcpmux clean
+	$(MAKE) -C src clean
