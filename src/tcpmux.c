@@ -43,14 +43,19 @@
 #define NAME "tcpmux"
 #define MQ_OUT "kernel"
 
+#define BUFFER_SIZE 1024
+
 struct rmq_context mq_out, mq_in;
 struct sev_server server;
 
 struct tm_client {
     char *tag;
     struct sev_stream *stream;
-    struct sev_queue *queue;
-    size_t queue_len;
+
+    char buffer[BUFFER_SIZE];
+    size_t buffer_len;
+    int buffer_start;
+
     RB_ENTRY(tm_client) entry;
 };
 
@@ -69,8 +74,9 @@ struct tm_client *tm_client_new(struct sev_stream *stream)
     asprintf(&client->tag, "%s:%s-%d", NAME, stream->remote_address,
         stream->remote_port);
     client->stream = stream;
-    client->queue = sev_queue_new();
-    client->queue_len = 0;
+    sprintf(client->buffer, "message %s ", client->tag);
+    client->buffer_len = strlen(client->buffer);
+    client->buffer_start = client->buffer_len;
 
     RB_INSERT(tm_client_tree, &head, client);
 
@@ -81,7 +87,6 @@ void tm_client_free(struct tm_client *client)
 {
     RB_REMOVE(tm_client_tree, &head, client);
 
-    sev_queue_free(client->queue);
     free(client->tag);
     free(client);
 }
@@ -96,15 +101,11 @@ void open_cb(struct sev_stream *stream)
     rmq_rpushf(&mq_out, "connect %s %s", client->tag, stream->remote_address);
 }
 
-int num_delimiters = 3;
-const char delimiters[] = { '\0', '\r', '\n' };
-
 int find_delimiter(const char *data, size_t len)
 {
-    for (int i=0; i<len; i++)
-        for (int j=0; j<num_delimiters; j++)
-            if (data[i] == delimiters[j])
-                return i;
+    for (int i = 0; i < len; i++)
+        if (data[i] == '\n')
+            return i;
 
     return -1;
 }
@@ -116,42 +117,28 @@ void read_cb(struct sev_stream *stream, char *data, size_t len)
     while (len != 0) {
         int pos = find_delimiter(data, len);
 
-        // no delimiter, save data for later
-        if (pos == -1) {
-            sev_queue_push_back(client->queue, data, len);
-            client->queue_len += len;
+        int n = pos == -1 ? len : pos;
+
+        int rest = (BUFFER_SIZE - 1) - client->buffer_len;
+        if (n > rest)
+            n = rest;
+
+        // append data (up to \n) to the buffer
+        memcpy(client->buffer + client->buffer_len, data, n);
+        client->buffer_len += n;
+        client->buffer[client->buffer_len] = '\0';
+
+        // did not find a \n -- wait for the rest of the message
+        if (pos == -1)
             return;
-        }
 
-        // found a message delimiter
-        // join message parts together
-        size_t total_len = pos + client->queue_len;
-
-        if (total_len > 0) {
-            char *message = malloc(total_len + 1);
-            char *p = message;
-
-            for (;;) {
-                // copy everything in the queue to the buffer
-                struct sev_buffer *buffer = sev_queue_head(client->queue);
-                if (!buffer)
-                    break;
-
-                memcpy(p, buffer->data, buffer->len);
-                p += buffer->len;
-
-                client->queue_len -= buffer->len;
-                sev_queue_free_head(client->queue);
-            }
-
-            // append the data we just received
-            memcpy(p, data, pos);
-            p += pos;
+        // terminate string on the first \r
+        char *p = strchr(client->buffer, '\r');
+        if (p)
             *p = '\0';
 
-            rmq_rpushf(&mq_out, "message %s %s", client->tag, message);
-            free(message);
-        }
+        rmq_rpush(&mq_out, client->buffer);
+        client->buffer_len = client->buffer_start;
 
         // discard data before the delimiter, and the delimiter
         data += pos + 1;
