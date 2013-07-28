@@ -23,7 +23,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// for asprintf / strdup
+// for asprintf
 #define _GNU_SOURCE 1
 
 #include <stdio.h>
@@ -139,9 +139,9 @@ void mux_client_close(struct mux_client *client, const char *reason)
     mux_client_free(client);
 }
 
-static void blpop_cb(const char *reply)
+static void blpop_cb(char *reply)
 {
-    char *tags = strdup(reply);
+    char *tags = reply;
     char *message = strchr(tags, ' ');
     *message++ = '\0';
 
@@ -160,8 +160,6 @@ static void blpop_cb(const char *reply)
 
         server_message(client, message);
     }
-
-    free(tags);
 }
 
 void mux_init(void)
@@ -174,4 +172,6 @@ void mux_init(void)
 
     rmq_init(&mq_in, REDIS_HOST, REDIS_PORT, REDIS_DB, mq);
     rmq_blpop(&mq_in, blpop_cb);
+
+    free(mq);
 }
