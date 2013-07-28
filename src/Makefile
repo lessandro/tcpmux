@@ -4,14 +4,18 @@ tcpmux:
 	$(CC) -std=c99 -Wall -o tcpmux tcpmux.c mux.c \
 		../redismq/*.c \
 		../sev/*.c \
-		-lev -lhiredis
+		../hiredis/libhiredis.a \
+		-I.. \
+		-lev
 
 wsmux:
 	$(CC) -std=c99 -Wall -o wsmux wsmux.c mux.c \
 		../redismq/*.c \
 		../sev/*.c \
 		../libws/*.c \
-		-lev -lhiredis
+		../hiredis/libhiredis.a \
+		-I.. \
+		-lev
 
 clean:
 	rm -rf *.dSYM tcpmux wsmux

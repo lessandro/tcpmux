@@ -7,3 +7,6 @@
 [submodule "libws"]
 	path = libws
 	url = https://github.com/lessandro/libws.git
+[submodule "hiredis"]
+	path = hiredis
+	url = https://github.com/redis/hiredis
