@@ -4,3 +4,6 @@
 [submodule "sev"]
 	path = sev
 	url = https://github.com/lessandro/sev.git
+[submodule "libws"]
+	path = libws
+	url = https://github.com/lessandro/libws.git
