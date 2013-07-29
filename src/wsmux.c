@@ -40,7 +40,8 @@ void server_message(struct mux_client *client, char *message)
     // send websocket header
     char header[WS_FRAME_HEADER_SIZE];
     int header_len = ws_write_frame_header(header, WS_TEXT, len);
-    sev_send(client->stream, header, header_len);
+    if (sev_send(client->stream, header, header_len) == -1)
+        return;
 
     // send data
     sev_send(client->stream, message, len);
