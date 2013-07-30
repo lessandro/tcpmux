@@ -31,6 +31,48 @@
 #define PORT 5555
 
 char *name = "tcpmux";
+int irc = 0;
+
+void process_message(char *message)
+{
+    if (!irc)
+        return;
+
+    char *cmd = strchr(message, ' ');
+    if (!cmd++)
+        return;
+
+    if (strncmp(cmd, "PRIVMSG", 7))
+        return;
+
+    char *target = strchr(cmd, ' ');
+    if (!target++)
+        return;
+
+    char *arg = strchr(target, ' ');
+    if (!arg++)
+        return;
+
+    if (strncmp(arg, ":\x01S ", 4))
+        return;
+
+    char *font = strchr(arg, ' ');
+    if (!font++)
+        return;
+
+    char *msg = strchr(font, ' ');
+    if (!msg++)
+        return;
+
+    char *end = strchr(msg, '\r');
+    if (*--end != '\x01')
+        end++;
+
+    *end++ = '\r';
+    *end++ = '\n';
+    *end++ = '\0';
+    memmove(arg + 1, msg, (end - msg));
+}
 
 void server_message(struct mux_client *client, char *message)
 {
@@ -67,6 +109,11 @@ static void close_cb(struct sev_stream *stream, const char *reason)
 
 int main(int argc, char *argv[])
 {
+    if (argc > 1 && !strcmp(argv[1], "irc")) {
+        irc = 1;
+        name = "ircmux";
+    }
+
     mux_init();
 
     struct sev_server server;

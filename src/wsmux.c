@@ -33,6 +33,10 @@
 
 char *name = "wsmux";
 
+void process_message(char *message)
+{
+}
+
 void server_message(struct mux_client *client, char *message)
 {
     size_t len = strlen(message);

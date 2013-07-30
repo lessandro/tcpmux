@@ -38,6 +38,7 @@
 extern char *name;
 extern void server_message(struct mux_client *, char *message);
 extern void server_close(struct mux_client *);
+extern void process_message(char *message);
 
 static struct rmq_context mq_out;
 static struct rmq_context mq_in;
@@ -144,6 +145,8 @@ static void blpop_cb(char *reply)
     char *tags = reply;
     char *message = strchr(tags, ' ');
     *message++ = '\0';
+
+    process_message(message);
 
     char *tag = strtok(tags, ",");
     for (; tag != NULL; tag = strtok(NULL, ",")) {
